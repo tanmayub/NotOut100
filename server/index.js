@@ -1,182 +1,126 @@
-var socket = require('socket.io');
-var app = require('express')();
-var http = require('http');
-var uuid = require('uuid');
+// Setup basic express server
+// Credits - https://github.com/Frankenmint/mmserver/tree/66fa53a583221d2dac53ec4a2de5a2631b2a9095
+// Article - https://www.codementor.io/@codementorteam/socketio-multi-user-app-matchmaking-game-server-2-uexmnux4p
+var express = require('express');
+var app = express();
 var fs = require('fs');
-var parser = require('body-parser');
-var request = require('request');
-var url = "http://localhost:80/server";
-var port = 2528;
+var server = require('http').createServer(app);
+var io = require('socket.io')(server);
+var port = process.env.PORT || 3000;
 
-app.get('/',(req, res) => res.send("Hello World!"));
-
-var server = http.createServer(app).listen(port, () => console.log(`listening on port ${port}`));
-var io = require('socket.io').listen(server, {resource: "/c4/socket.io/"});
-
-var lobbies = {};
-
-var getOtherPlayer = function(session, socket) {
-    var other_player = null;
-    var p1 = session.player1.socket.id;
-    var p2 = session.player2.socket.id;
-    if(socket.id == p1)
-        other_player = session.player2;
-    if(socket.id == p2)
-        other_player = session.player1;
-    
-    return other_player;
-}
-
-io.on('connection', function(socket) 
-{
-
-    socket.on('initSession', function(player_one)
-    {	
-    	var id = uuid.v4()
-    	var new_session = 
-    	{
-    		'id':id,
-    		'player1':{
-    			profile:player_one,
-    			socket:socket
-    		},
-    		'info':
-    		{
-    			'id':id,
-    			'player1':player_one
-    		}
-    	}
-    	lobbies[id] = new_session
-    	socket.emit('newSession', new_session.id)
-    })
-
-    socket.on('replaceGameSocket', function(player, id)
-    {
-        var game = lobbies[id]
-        console.log("======= replacing socket for game #"+id+" =======")
-        console.log(game)
-        console.log(player)
-        if(game.player1 != null && JSON.stringify(game.player1.profile) == JSON.stringify(player)) game.player1.socket = socket;
-        if(game.player2 != null && JSON.stringify(game.player2.profile) == JSON.stringify(player)) game.player2.socket = socket;
-    })
-
-    socket.on('openSession', function(session_id, player_two)
-    {
-    	if(lobbies[session_id])
-    	{
-	    	if(player_two) 
-	    	{
-	    		lobbies[session_id].player2 = 
-		    	{
-		    		profile:player_two,
-		    		socket:socket
-		    	}
-		    	lobbies[session_id].info.player2 = player_two;
-		    	lobbies[session_id].player1.socket.emit('other_player', player_two)
-		    }
-
-	    	socket.emit('yourSession', lobbies[session_id].info)
-    	}
-    })
-
-    socket.on('transferCallData', function(session_id, rtc_data) 
-    {
-    	var session = lobbies[session_id]
-	    if(session) getOtherPlayer(session, socket).socket.emit('callData', rtc_data)
-    })
-
-    socket.on('dropBall', function(session_id, column)
-    {
-    	var session = lobbies[session_id]
-	    if(session) getOtherPlayer(session, socket).socket.emit('ballDropped', column)
-
-    })
-
-    socket.on('restartGame', function(session_id)
-    {
-        var session = lobbies[session_id]
-        if(session) 
-        {
-            var other_player, starting_player;
-            var player1      = session.player1.socket.id
-            var player2      = session.player2.socket.id
-            if(socket.id == player1) 
-            {
-                other_player = session.player2
-                starting_player = 2
-            }
-            if(socket.id == player2) 
-            {
-                other_player = session.player1
-                starting_player = 1;
-            }
-            other_player.socket.emit('restartGame', starting_player)
-            socket.emit('restartGame', starting_player)
-        }
-    })
+server.listen(port, function () {
+  console.log('Server listening at port %d', port);
+  fs.writeFile(__dirname + '/start.log', 'started', function(){console.log("returned")}); 
 });
 
-var makeMatrixUser = function(user)
-{
-    return new Promise(function(resolve, reject)
-    {
-        var ops = 
-        {
-            url: url+'/client/r0/register?kind=user',
-            method: 'POST',
-            json: 
-            {
-                "password": user.password,
-                "username": user.name,
-                "bind_email": false,
-                "auth": {"type":"m.login.dummy"}
-            }
-        };
-        request(ops, function(err, res, body)
-        {
-            if(err) console.error(JSON.stringify(err));
-            console.log('===== matrix register result, code: ' + res.statusCode + ' =====')
-            resolve(body)
-        })
-    })
-}
-app.use(parser.json())
+// Routing
+app.use(express.static(__dirname));
 
-app.use(function(req, res, next) 
-{
-    res.set({
-        "Access-Control-Allow-Origin": "https://starpy.me",
-        "Access-Control-Allow-Credentials":true,
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,HEAD,DELETE,OPTIONS',
-        "Access-Control-Allow-Headers": "Content-Type"
+// Entire GameCollection Object holds all games and info
+
+var gameCollection =  new function() {
+
+  this.totalGameCount = 0,
+  this.gameList = {}
+
+};
+
+
+
+
+// Chatroom
+
+var numUsers = 0;
+
+io.on('connection', function (socket) {
+  var addedUser = false;
+
+  // when the client emits 'new message', this listens and executes
+  socket.on('new message', function (data) {
+    // we tell the client to execute 'new message'
+    socket.broadcast.emit('new message', {
+      username: socket.username,
+      message: data
     });
-    next()
-})
+  });
 
-app.get('/c4/', function(req,res){
+  // when the client emits 'add user', this listens and executes
+  socket.on('add user', function (username) {
+    if (addedUser) return;
 
-    res.set({
-        'Content-Type': 'text/html',
-    })
-    res.send('<h1 style="font-family:Helvetica, Open-sans, Arial">THIS IS A CONNECT 4 SIGNALLING SERVER</h1>')
-})
+    // we store the username in the socket session for this client
+    socket.username = username;
+    ++numUsers;
+    addedUser = true;
+    socket.emit('login', {
+      numUsers: numUsers
+    });
+    // echo globally (all clients) that a person has connected
+    socket.broadcast.emit('user joined', {
+      username: socket.username,
+      numUsers: numUsers
+    });
+  });
 
-app.post('/c4/register', function(req,res)
-{
-    console.log(req.body)
-    try {
-        var user = {
-            user:req.body.name,
-            password:req.body.password
-        }
+  // when the client emits 'typing', we broadcast it to others
+  socket.on('typing', function () {
+    socket.broadcast.emit('typing', {
+      username: socket.username
+    });
+  });
 
-        makeMatrixUser(user)
-        .then(function(result)
-        {
-            res.send(result);
-        })
+  // when the client emits 'stop typing', we broadcast it to others
+  socket.on('stop typing', function () {
+    socket.broadcast.emit('stop typing', {
+      username: socket.username
+    });
+  });
+
+  // when the user disconnects.. perform this
+  socket.on('disconnect', function () {
+    if (addedUser) {
+      --numUsers;
+
+      // echo globally that this client has left
+      socket.broadcast.emit('user left', {
+        username: socket.username,
+        numUsers: numUsers
+      });
     }
-    catch(err){
-        console.error(err)
-    }
-})
+  });
+
+  //when the client  requests to make a Game
+  socket.on('makeGame', function () {
+
+     var gameId = (Math.random()+1).toString(36).slice(2, 18);
+     console.log("Game Created by "+ socket.username + " w/ " + gameId);
+     gameCollection.gameList.gameId = gameId
+     gameCollection.gameList.gameId.playerOne = socket.username;
+     gameCollection.gameList.gameId.open = true;
+     gameCollection.totalGameCount ++;
+
+    io.emit('gameCreated', {
+      username: socket.username,
+      gameId: gameId
+    });
+
+  });
+
+
+});
+
+
+
+
+//Join a Game
+  function joinGame(username, game) {
+
+
+  if (game.player2 !== null) {
+    game.player2 = username;
+  } 
+  else {
+    alert("Game "+game.id+ " Already Has Max Players" )
+  }
+
+}
