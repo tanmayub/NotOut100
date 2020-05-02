@@ -15,8 +15,8 @@ $(function() {
   
     var $loginPage = $('.login.page'); // The login page
     var $chatPage = $('.chat.page'); // The chatroom page
-    var $createGame = $('.createGame'); 
-    var $joinGame = $('.joinGame'); 
+    var $joinGame = $('.joinGame');
+    var $leaveGame = $('.leaveGame');
   
     // Prompt for setting a username
     var username;
@@ -232,11 +232,14 @@ $(function() {
     $inputMessage.click(function () {
       $inputMessage.focus();
     });
-  
-    $createGame.click(function () {
-      sendGame();
-  
-    })
+        
+    $joinGame.click(function () {
+        joinGame();
+    });
+
+    $leaveGame.click(function () {
+        leaveGame();
+    });
   
   
     // Socket events
@@ -314,9 +317,14 @@ $(function() {
     socket.on('leftGame', function (data) {
         log('Leaving Game ' + data.gameId);
     });
-  
-    function sendGame(){
-        socket.emit('makeGame');
-    };
+
+    socket.on('notInGame', function () {
+        log('You are not currently in a Game.');
+    });
+      
+    socket.on('gameDestroyed', function (data) { 
+        log( data.gameOwner+ ' destroyed game: ' + data.gameId);
+      
+    });
   
 });
