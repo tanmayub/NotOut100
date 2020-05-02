@@ -21,7 +21,7 @@ app.use(express.static(__dirname));
 var gameCollection =  new function() {
 
   this.totalGameCount = 0,
-  this.gameList = {}
+  this.gameList = []
 
 };
 
@@ -89,22 +89,39 @@ io.on('connection', function (socket) {
     }
   });
 
-  //when the client  requests to make a Game
-  socket.on('makeGame', function () {
-
-     var gameId = (Math.random()+1).toString(36).slice(2, 18);
-     console.log("Game Created by "+ socket.username + " w/ " + gameId);
-     gameCollection.gameList.gameId = gameId
-     gameCollection.gameList.gameId.playerOne = socket.username;
-     gameCollection.gameList.gameId.open = true;
-     gameCollection.totalGameCount ++;
-
-    io.emit('gameCreated', {
-      username: socket.username,
-      gameId: gameId
+    //when the client requests to make a Game
+    socket.on('makeGame', function () {
+        console.log(JSON.stringify(gameCollection.gameList));
+        
+        var noGamesFound = true;
+        for(var i = 0; i < gameCollection.totalGameCount; i++){
+            var tempName = gameCollection.gameList[i]['gameObject']['playerOne'];
+            if (tempName == socket.username){
+                noGamesFound = false;
+                
+                console.log("This User already has a Game!");
+                
+                socket.emit('alreadyJoined', {
+                gameId: gameCollection.gameList[i]['gameObject']['id']});        
+            }
+        }
+        
+        if (noGamesFound) {
+        
+            var gameObject = {};
+            gameObject.id = (Math.random()+1).toString(36).slice(2, 18);
+            gameObject.playerOne = socket.username;
+            gameCollection.totalGameCount ++;
+            gameCollection.gameList.push({gameObject});
+            
+            console.log("Game Created by "+ socket.username + " w/ " + gameObject.id);
+            
+            io.emit('gameCreated', {
+            username: socket.username,
+            gameId: gameObject.id
+            });
+        }
     });
-
-  });
 
 
 });

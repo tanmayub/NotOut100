@@ -281,9 +281,7 @@ $(function() {
     // Whenever the server emits 'stop typing', kill the typing message
     socket.on('stop typing', function (data) {
       removeChatTyping(data);
-    });
-  
-  
+    }); 
   
   
   
@@ -292,9 +290,33 @@ $(function() {
       log(data.username + ' created Game: ' + data.gameId);
       //alert("Game Created! ID is: "+ JSON.stringify(data));
     });
+
+    //Join into an Existing Game
+    function joinGame(){
+        socket.emit('joinGame');
+    };
+    
+    socket.on('joinSuccess', function (data) {
+        log('Joining the following game: ' + data.gameId);
+    });
+    
+    
+    //Response from Server on existing User found in a game
+    socket.on('alreadyJoined', function (data) {
+        log('You are already in an Existing Game: ' + data.gameId);
+    });
+    
+    
+    function leaveGame(){
+        socket.emit('leaveGame');
+    };
+    
+    socket.on('leftGame', function (data) {
+        log('Leaving Game ' + data.gameId);
+    });
   
-  function sendGame(){
-    socket.emit('makeGame');
-  };
+    function sendGame(){
+        socket.emit('makeGame');
+    };
   
-  });
+});
