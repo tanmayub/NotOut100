@@ -64,7 +64,7 @@ function gameSeeker (socket) {
         else {
             gameSeeker(socket);
         }
-        }
+    }
 }
 
 function killGame(socket) {
